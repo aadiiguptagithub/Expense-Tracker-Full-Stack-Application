@@ -1,0 +1,226 @@
+
+
+// 1. BACKEND SETUP: Node.js + Express.js
+const express = require('express');
+const mongoose = require('mongoose');
+const cors = require('cors');
+
+const app = express();
+
+// Middleware
+app.use(express.json());
+app.use(cors());
+
+// Database Connection
+mongoose.connect('mongodb://localhost:27017/expense-tracker', {
+    useNewUrlParser: true,
+    useUnifiedTopology: true,
+});
+
+const expenseSchema = new mongoose.Schema({
+    amount: Number,
+    category: String,
+    description: String,
+    date: Date,
+});
+
+const Expense = mongoose.model('Expense', expenseSchema);
+
+// Routes
+// Add an expense
+app.post('/expenses', async (req, res) => {
+    try {
+        const expense = new Expense(req.body);
+        await expense.save();
+        res.status(201).send(expense);
+    } catch (error) {
+        res.status(400).send(error);
+    }
+});
+
+// Get all expenses
+app.get('/expenses', async (req, res) => {
+    try {
+        const expenses = await Expense.find();
+        res.send(expenses);
+    } catch (error) {
+        res.status(500).send(error);
+    }
+});
+
+// Update an expense
+app.put('/expenses/:id', async (req, res) => {
+    try {
+        const expense = await Expense.findByIdAndUpdate(req.params.id, req.body, { new: true });
+        res.send(expense);
+    } catch (error) {
+        res.status(400).send(error);
+    }
+});
+
+// Delete an expense
+app.delete('/expenses/:id', async (req, res) => {
+    try {
+        await Expense.findByIdAndDelete(req.params.id);
+        res.send({ message: 'Expense deleted successfully' });
+    } catch (error) {
+        res.status(500).send(error);
+    }
+});
+
+// Start Server
+const PORT = 5000;
+app.listen(PORT, () => {
+    console.log(`Server running on http://localhost:${PORT}`);
+});
+
+// 2. FRONTEND SETUP: React.js
+
+// File: src/App.js
+import React, { useEffect, useState } from 'react';
+import axios from 'axios';
+import './App.css';
+
+function App() {
+    const [expenses, setExpenses] = useState([]);
+    const [form, setForm] = useState({ amount: '', category: '', description: '', date: '' });
+    const [isEditing, setIsEditing] = useState(false);
+    const [editId, setEditId] = useState(null);
+
+    // Fetch expenses
+    useEffect(() => {
+        fetchExpenses();
+    }, []);
+
+    const fetchExpenses = async () => {
+        const response = await axios.get('http://localhost:5000/expenses');
+        setExpenses(response.data);
+    };
+
+    const handleChange = (e) => {
+        setForm({ ...form, [e.target.name]: e.target.value });
+    };
+
+    const handleSubmit = async (e) => {
+        e.preventDefault();
+        if (isEditing) {
+            await axios.put(`http://localhost:5000/expenses/${editId}`, form);
+            setIsEditing(false);
+            setEditId(null);
+        } else {
+            await axios.post('http://localhost:5000/expenses', form);
+        }
+        setForm({ amount: '', category: '', description: '', date: '' });
+        fetchExpenses();
+    };
+
+    const handleEdit = (expense) => {
+        setForm(expense);
+        setIsEditing(true);
+        setEditId(expense._id);
+    };
+
+    const handleDelete = async (id) => {
+        await axios.delete(`http://localhost:5000/expenses/${id}`);
+        fetchExpenses();
+    };
+
+    return (
+        <div className="App">
+            <h1>Expense Tracker</h1>
+            <form onSubmit={handleSubmit}>
+                <input
+                    type="number"
+                    name="amount"
+                    placeholder="Amount"
+                    value={form.amount}
+                    onChange={handleChange}
+                />
+                <input
+                    type="text"
+                    name="category"
+                    placeholder="Category"
+                    value={form.category}
+                    onChange={handleChange}
+                />
+                <input
+                    type="text"
+                    name="description"
+                    placeholder="Description"
+                    value={form.description}
+                    onChange={handleChange}
+                />
+                <input
+                    type="date"
+                    name="date"
+                    value={form.date}
+                    onChange={handleChange}
+                />
+                <button type="submit">{isEditing ? 'Update' : 'Add'} Expense</button>
+            </form>
+
+            <h2>Expense List</h2>
+            <ul>
+                {expenses.map((expense) => (
+                    <li key={expense._id}>
+                        {expense.amount} - {expense.category} - {expense.description} - {new Date(expense.date).toLocaleDateString()}
+                        <button onClick={() => handleEdit(expense)}>Edit</button>
+                        <button onClick={() => handleDelete(expense._id)}>Delete</button>
+                    </li>
+                ))}
+            </ul>
+        </div>
+    );
+}
+
+export default App;
+
+// 3. DASHBOARD WITH CHARTS
+// File: src/Dashboard.js
+import React from 'react';
+import { Pie, Bar } from 'react-chartjs-2';
+
+function Dashboard({ expenses }) {
+    const categories = [...new Set(expenses.map((e) => e.category))];
+    const categoryData = categories.map((category) =>
+        expenses.filter((e) => e.category === category).reduce((acc, curr) => acc + curr.amount, 0)
+    );
+
+    const monthlyData = expenses.reduce((acc, curr) => {
+        const month = new Date(curr.date).getMonth();
+        acc[month] = (acc[month] || 0) + curr.amount;
+        return acc;
+    }, {});
+
+    return (
+        <div>
+            <h2>Expense Dashboard</h2>
+            <Pie
+                data={{
+                    labels: categories,
+                    datasets: [
+                        {
+                            label: 'Category Distribution',
+                            data: categoryData,
+                            backgroundColor: ['#FF6384', '#36A2EB', '#FFCE56'],
+                        },
+                    ],
+                }}
+            />
+            <Bar
+                data={{
+                    labels: Object.keys(monthlyData),
+                    datasets: [
+                        {
+                            label: 'Monthly Expenses',
+                            data: Object.values(monthlyData),
+                            backgroundColor: 'rgba(75,192,192,0.4)',
+                        },
+                    ],
+                }}
+            />
+        </div>
+    );
+}
+
+export default Dashboard;
